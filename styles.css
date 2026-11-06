@@ -143,6 +143,21 @@ html, body {
         0 0 80px var(--porsche-gold-dim);
 }
 
+/* Downshift refused (would over-rev): red shake. Uses the separate
+   "translate" property so it doesn't fight app.js's inline transform. */
+#gear-display.denied {
+    color: var(--porsche-red);
+    animation: gear-deny 0.35s ease;
+}
+
+@keyframes gear-deny {
+    0%, 100% { translate: 0 0; }
+    20%      { translate: -6px 0; }
+    40%      { translate: 6px 0; }
+    60%      { translate: -4px 0; }
+    80%      { translate: 4px 0; }
+}
+
 #gear-display.reverse {
     color: var(--porsche-red);
     text-shadow:
@@ -205,6 +220,22 @@ html, body {
 @keyframes vignette-throb {
     from { opacity: 0.6; }
     to   { opacity: 1.0; }
+}
+
+
+/* ─── Turning steering wheels ──────────────────────────────── */
+/* Round windows onto the wheel part of the background (sized and
+   positioned by app.js), rotated when you steer. */
+.steer-wheel {
+    position: absolute;
+    z-index: 0;   /* under the soft edge vignette, so the shading matches */
+    border-radius: 50%;
+    background-image: url('dashboard_bg.png');
+    background-repeat: no-repeat;
+    background-color: #fff;
+    pointer-events: none;
+    transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    will-change: transform;
 }
 
 

@@ -44,6 +44,11 @@
         RPM_X_PCT: 49.8,
         RPM_Y_PCT: 84.5,
 
+        // ── Steering wheel pictures (px in the 3120×1440 background) ──
+        WHEELS: [{ x: 313, y: 269 }, { x: 2822, y: 269 }],
+        WHEEL_RADIUS_PX: 218,      // a little over the wheel's 211 px, to cover its edge
+        WHEEL_MAX_DEG: 70,         // how far the pictures turn at full lock
+
         // ── Touch Zone Definitions (% of background image) ──
         ZONES: {
             steerLeft:  { x: 0.5,  y: 0,    w: 13,  h: 32 },
@@ -221,6 +226,8 @@
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(token);
             }
+            // Lets the dashboard react to what we send (e.g. turn the wheels)
+            if (this.onSendCb) this.onSendCb(token);
             // Always log for debugging even when not connected
             console.log(`[WS→] ${token}`);
         }
@@ -738,6 +745,15 @@
             this._flashTimeout = null;
         }
 
+        /** Quick red shake on the gear letter when a downshift is refused. */
+        flashDenied() {
+            this.gearEl.classList.remove('denied');
+            void this.gearEl.offsetWidth;          // restart the animation
+            this.gearEl.classList.add('denied');
+            clearTimeout(this._deniedTimeout);
+            this._deniedTimeout = setTimeout(() => this.gearEl.classList.remove('denied'), 400);
+        }
+
         layout() {
             const gearPos = imgToViewport(CONFIG.GEAR_X_PCT, CONFIG.GEAR_Y_PCT);
             this.gearEl.style.left = gearPos.x + 'px';
@@ -774,36 +790,165 @@
 
 
     /* ══════════════════════════════════════════════════════════
+       STEERING WHEELS — makes the two wheel pictures turn
+       The wheels are part of the background image, so we lay a round
+       "window" over each one that shows the same patch of the image,
+       and rotate that window. Touches pass straight through it.
+       ══════════════════════════════════════════════════════════ */
+    class SteeringWheels {
+        constructor(cockpit) {
+            this.els = CONFIG.WHEELS.map(() => {
+                const el = document.createElement('div');
+                el.className = 'steer-wheel';
+                el.setAttribute('aria-hidden', 'true');
+                cockpit.appendChild(el);
+                return el;
+            });
+        }
+
+        layout() {
+            const { imgW, imgH, offsetX, offsetY } = getImageBounds();
+            const scale = imgW / CONFIG.BG_WIDTH;
+            const r = CONFIG.WHEEL_RADIUS_PX * scale;
+            CONFIG.WHEELS.forEach((w, i) => {
+                const el = this.els[i];
+                const left = offsetX + w.x * scale - r;
+                const top = offsetY + w.y * scale - r;
+                el.style.left = left + 'px';
+                el.style.top = top + 'px';
+                el.style.width = el.style.height = (2 * r) + 'px';
+                el.style.backgroundSize = imgW + 'px ' + imgH + 'px';
+                el.style.backgroundPosition = (offsetX - left) + 'px ' + (offsetY - top) + 'px';
+            });
+        }
+
+        /** @param {number} value  -255 (full left) .. 255 (full right) */
+        setSteer(value) {
+            const deg = clamp(value / 255, -1, 1) * CONFIG.WHEEL_MAX_DEG;
+            for (const el of this.els) el.style.transform = `rotate(${deg}deg)`;
+        }
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       DRIVETRAIN SIMULATION
+       A small physics model of the car, so RPM behaves like a real
+       GT3 RS: the engine is tied to the wheels through the gearbox,
+       so an upshift drops the revs and a downshift blips them up.
+       ══════════════════════════════════════════════════════════ */
+    class DrivetrainSim {
+        constructor() {
+            this.speed = 0;      // km/h
+            this.rpm = 800;
+            this.gear = 'N';
+            this._fuelCut = false;
+        }
+
+        /** Gear the box is in. RPM catches up on the next steps. */
+        setGear(gear) { this.gear = gear; }
+
+        /** RPM the engine would be at in `gear` at the current speed. */
+        lockedRPM(gear = this.gear) {
+            const ratio = DrivetrainSim.RATIOS[gear] || 0;
+            return this.speed * ratio * DrivetrainSim.RPM_PER_KMH;
+        }
+
+        /**
+         * True when dropping into `gear` would over-rev the engine.
+         * Like the real PDK, the gearbox refuses those downshifts.
+         */
+        wouldOverRev(gear) {
+            return this.lockedRPM(gear) > DrivetrainSim.LIMIT + 400;
+        }
+
+        /**
+         * Advance the model.
+         * @param {number} dt        seconds since last step
+         * @param {number} throttle  0..1
+         * @param {number} brake     0..1
+         */
+        step(dt, throttle, brake) {
+            const S = DrivetrainSim;
+            const ratio = S.RATIOS[this.gear] || 0;
+
+            // Rev limiter: cut fuel at the limit, restore it 250 rpm lower.
+            // This makes the needle and sound "bounce" off 9,000.
+            if (this.rpm >= S.LIMIT - 10) this._fuelCut = true;
+            else if (this.rpm < S.LIMIT - 250) this._fuelCut = false;
+            const fuel = this._fuelCut ? 0 : throttle;
+
+            // ── Car: drive force through the gear, minus drag and brakes ──
+            // Torque is strongest mid-range, softer at idle and redline.
+            const band = clamp((this.rpm - S.IDLE) / (S.LIMIT - S.IDLE), 0, 1);
+            const torque = 0.72 + 0.28 * Math.sin(band * Math.PI);
+            let accel = 0;                                   // km/h per second
+            if (ratio) {
+                accel += fuel * S.DRIVE * ratio * torque;
+                if (fuel < 0.05) accel -= 3.5 * ratio / S.RATIOS['1'];   // engine braking
+            }
+            accel -= S.ROLL + S.AERO * this.speed * this.speed + brake * S.BRAKE;
+            this.speed = Math.max(0, this.speed + accel * dt);
+
+            // ── Engine: free-revving in N, tied to the wheels in gear ──
+            let target, tau;
+            if (!ratio) {
+                target = S.IDLE + fuel * (S.LIMIT + 300 - S.IDLE);
+                tau = target > this.rpm ? 0.09 : 0.35;      // revs up fast, falls slower
+            } else {
+                const locked = this.lockedRPM();
+                if (locked < S.LAUNCH && throttle > 0.05) {
+                    // Pulling away: clutch slips, revs held up for the launch
+                    target = Math.max(locked, S.LAUNCH + throttle * 2500);
+                    tau = 0.12;
+                } else {
+                    // Clutch fully engaged: RPM = wheel speed × gear ratio.
+                    // The short time constant is the PDK shift: about 70 ms.
+                    target = Math.max(locked, S.IDLE);
+                    tau = 0.07;
+                }
+            }
+            this.rpm += (target - this.rpm) * (1 - Math.exp(-dt / tau));
+            this.rpm = clamp(this.rpm, 0, CONFIG.MAX_RPM);
+            return this.rpm;
+        }
+    }
+
+    // Porsche 911 GT3 RS (992) gear ratios. Its 7th gear isn't used: the app has 6.
+    DrivetrainSim.RATIOS = { R: 3.42, N: 0, 1: 3.75, 2: 2.38, 3: 1.72, 4: 1.34, 5: 1.11, 6: 0.96 };
+    DrivetrainSim.IDLE = 800;
+    DrivetrainSim.LIMIT = 9000;
+    DrivetrainSim.LAUNCH = 1500;
+    // Final drive + tyre size folded into one number: 6th at 9,000 rpm ≈ 296 km/h (the RS's top speed)
+    DrivetrainSim.RPM_PER_KMH = 9000 / (296 * 0.96);
+    DrivetrainSim.DRIVE = 10.7;      // ≈ 0-75 km/h in 1st in about 2.5 s
+    DrivetrainSim.ROLL = 1.0;        // rolling resistance, km/h/s
+    DrivetrainSim.AERO = 0.00012;    // air drag (∝ speed²)
+    DrivetrainSim.BRAKE = 60;        // full brake ≈ 1.7 g
+
+
+    /* ══════════════════════════════════════════════════════════
        DEMO MODE
        ══════════════════════════════════════════════════════════ */
     class DemoMode {
         constructor(app) {
             this.app = app;
             this.active = false;
-            this.rpm = 800;
+            this.sim = new DrivetrainSim();
             this.gear = 'N';
             this.gearIndex = 1;       // Index into GEAR_ORDER: 0=R, 1=N, 2=1, ...
             this.throttleInput = 0;
             this.brakeInput = 0;
             this._animFrame = null;
             this._lastTime = 0;
-
-            this.gearRatios = {
-                'N': { idle: 800, max: 9000, accel: 12000 },
-                '1': { idle: 800, max: 9000, accel: 8000 },
-                '2': { idle: 2000, max: 9000, accel: 6500 },
-                '3': { idle: 2500, max: 9200, accel: 5500 },
-                '4': { idle: 3000, max: 9500, accel: 4500 },
-                '5': { idle: 3500, max: 9800, accel: 3800 },
-                '6': { idle: 4000, max: 10000, accel: 3200 },
-                'R': { idle: 800, max: 5000, accel: 5000 },
-            };
         }
+
+        get rpm() { return this.sim.rpm; }
+        set rpm(v) { this.sim.rpm = v; }
 
         start() {
             if (this.active) return;
             this.active = true;
-            this.rpm = 800;
+            this.sim = new DrivetrainSim();
             this.gear = 'N';
             this.gearIndex = 1;
             this._lastTime = performance.now();
@@ -833,12 +978,21 @@
         /**
          * Shift gears in demo mode.
          * @param {number} direction - +1 for upshift, -1 for downshift
+         * @returns {boolean} false if the gearbox refused (would over-rev)
          */
         shift(direction) {
             const GEAR_ORDER = ['R', 'N', '1', '2', '3', '4', '5', '6'];
-            this.gearIndex = clamp(this.gearIndex + direction, 0, GEAR_ORDER.length - 1);
-            this.gear = GEAR_ORDER[this.gearIndex];
+            const next = clamp(this.gearIndex + direction, 0, GEAR_ORDER.length - 1);
+            const gear = GEAR_ORDER[next];
+            if (direction < 0 && this.sim.wouldOverRev(gear)) {
+                console.log(`[DEMO] Downshift to ${gear} refused: would over-rev`);
+                return false;
+            }
+            this.gearIndex = next;
+            this.gear = gear;
+            this.sim.setGear(gear);
             console.log(`[DEMO] Gear → ${this.gear}`);
+            return true;
         }
 
         _tick() {
@@ -848,25 +1002,13 @@
             const dt = Math.min((now - this._lastTime) / 1000, 0.1);
             this._lastTime = now;
 
-            const gearSpec = this.gearRatios[this.gear] || this.gearRatios['N'];
-
-            if (this.throttleInput > 0.05) {
-                const targetRPM = gearSpec.idle + (gearSpec.max - gearSpec.idle) * this.throttleInput;
-                const accelRate = gearSpec.accel * this.throttleInput;
-                this.rpm = Math.min(targetRPM, this.rpm + accelRate * dt);
-            } else if (this.brakeInput > 0.05) {
-                this.rpm = Math.max(gearSpec.idle, this.rpm - 5000 * this.brakeInput * dt);
-            } else {
-                this.rpm = Math.max(gearSpec.idle, this.rpm - 2000 * dt);
-            }
-
-            this.rpm = clamp(this.rpm, 0, CONFIG.MAX_RPM);
+            const rpm = this.sim.step(dt, this.throttleInput, this.brakeInput);
 
             // Push telemetry to the app including current throttle load
-            this.app.onTelemetry({ 
-                rpm: Math.round(this.rpm), 
-                gear: this.gear, 
-                throttle: Math.round(this.throttleInput * 255) 
+            this.app.onTelemetry({
+                rpm: Math.round(rpm),
+                gear: this.gear,
+                throttle: Math.round((this.sim._fuelCut ? 0 : this.throttleInput) * 255)
             });
 
             this._animFrame = requestAnimationFrame(() => this._tick());
@@ -962,6 +1104,11 @@
 
             this.connDot = document.getElementById('connection-dot');
             this.connText = document.getElementById('connection-text');
+
+            this.wheels = new SteeringWheels(document.getElementById('cockpit'));
+            this.wsManager.onSendCb = (token) => {
+                if (token.startsWith('STEER:')) this.wheels.setSteer(parseInt(token.slice(6), 10) || 0);
+            };
         }
 
         init() {
@@ -1049,13 +1196,18 @@
                 this.demoMode.start();
             }
             if (this.demoMode.active) {
-                this.demoMode.shift(direction);
+                if (!this.demoMode.shift(direction)) {
+                    this.telemetryDisplay.flashDenied();   // gearbox said no: would over-rev
+                    return;
+                }
             } else {
                 // Optimistic local update
                 const newIndex = clamp(this.gearIndex + direction, 0, this.gearSequence.length - 1);
                 if (newIndex === this.gearIndex) return;
                 this.gearIndex = newIndex;
                 this.onTelemetry({ gear: this.gearSequence[this.gearIndex] });
+                // RPM must drop / blip with the shift, so keep the model running
+                if (this.wsManager.isConnected) this._startLiveAudioLoop();
             }
 
             // Trigger exhaust burble on downshift at high RPM
@@ -1096,25 +1248,17 @@
         }
 
         /**
-         * Lightweight RPM simulation loop for live ESP32 mode.
-         * Uses gear ratios to compute RPM from throttle, drives tachometer + audio.
-         * Stops automatically when throttle is released and RPM settles to idle.
+         * RPM simulation for live ESP32 mode, using the same drivetrain model
+         * as demo mode, so the tach and sound react to throttle and shifts.
+         * Stops by itself once the car has rolled to a stop at idle.
          */
         _startLiveAudioLoop() {
             if (this._liveAudioRunning) return;
             this._liveAudioRunning = true;
             this._liveLastTime = performance.now();
-
-            const gearRatios = {
-                'N': { idle: 800, max: 9000, accel: 12000 },
-                '1': { idle: 800, max: 9000, accel: 8000 },
-                '2': { idle: 2000, max: 9000, accel: 6500 },
-                '3': { idle: 2500, max: 9200, accel: 5500 },
-                '4': { idle: 3000, max: 9500, accel: 4500 },
-                '5': { idle: 3500, max: 9800, accel: 3800 },
-                '6': { idle: 4000, max: 10000, accel: 3200 },
-                'R': { idle: 800, max: 5000, accel: 5000 },
-            };
+            if (!this._liveSim) this._liveSim = new DrivetrainSim();
+            const sim = this._liveSim;
+            sim.rpm = this.currentRPM || DrivetrainSim.IDLE;
 
             const tick = (now) => {
                 if (!this._liveAudioRunning) return;
@@ -1129,20 +1273,8 @@
 
                 const throttle = this._liveThrottleInput || 0;
                 const brake = this._liveBrakeInput || 0;
-                const gear = this.currentGear || 'N';
-                const spec = gearRatios[gear] || gearRatios['N'];
-
-                if (throttle > 0.05) {
-                    const targetRPM = spec.idle + (spec.max - spec.idle) * throttle;
-                    const accelRate = spec.accel * throttle;
-                    this.currentRPM = Math.min(targetRPM, this.currentRPM + accelRate * dt);
-                } else if (brake > 0.05) {
-                    this.currentRPM = Math.max(spec.idle, this.currentRPM - 5000 * brake * dt);
-                } else {
-                    this.currentRPM = Math.max(spec.idle, this.currentRPM - 2000 * dt);
-                }
-
-                this.currentRPM = clamp(this.currentRPM, 0, CONFIG.MAX_RPM);
+                sim.setGear(this.currentGear || 'N');
+                this.currentRPM = sim.step(dt, throttle, brake);
                 const rpm = Math.round(this.currentRPM);
 
                 // Update tachometer and RPM display
@@ -1154,8 +1286,9 @@
                     this.engineAudio.setRPM(rpm);
                 }
 
-                // Keep running while there's meaningful RPM above idle
-                if (throttle > 0.01 || brake > 0.01 || this.currentRPM > spec.idle + 50) {
+                // Keep running until stopped, at idle, with no pedal pressed
+                const settled = sim.speed < 0.5 && Math.abs(sim.rpm - DrivetrainSim.IDLE) < 30;
+                if (throttle > 0.01 || brake > 0.01 || !settled) {
                     requestAnimationFrame(tick);
                 } else {
                     this._liveAudioRunning = false;
@@ -1325,6 +1458,7 @@
 
         _layout() {
             this.tachRenderer.layout();
+            this.wheels.layout();
             this.telemetryDisplay.layout();
             if (this.touchController) {
                 this.touchController.layout();
