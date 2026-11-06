@@ -25,7 +25,9 @@ built only from Node's own modules).
 | Throttle | Hold the right pedal (higher = more) | W / ↑ |
 | Brake | Hold the left pedal | S / ↓ |
 | Steer | Hold the left / right steering wheel | A / D or ← / → |
-| Shift up / down | Tap the + / − paddle | E / Q |
+| Shift up | Tap the + paddle | E |
+| Shift down | Tap the − paddle | Q or R |
+| Show / hide the key guide | | H or ? |
 | Settings | ⚙ button at the bottom | |
 
 With no car connected it switches to **demo mode** so you can still play with it.

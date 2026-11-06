@@ -622,61 +622,52 @@
 
 
     /* ══════════════════════════════════════════════════════════
-       KEYBOARD CONTROLLER — W/S/A/D + Arrow keys for desktop
+       KEYBOARD CONTROLLER
        ══════════════════════════════════════════════════════════ */
+    const KEY_ACTIONS = {
+        w: 'throttle', arrowup: 'throttle',
+        s: 'brake',    arrowdown: 'brake',
+        a: 'left',     arrowleft: 'left',
+        d: 'right',    arrowright: 'right',
+        e: 'shiftUp',
+        r: 'shiftDown', q: 'shiftDown',
+    };
+
     class KeyboardController {
         constructor(app) {
             this.app = app;
-            this.activeKeys = new Set();
+            this.heldActions = new Map();   // pressed key → action
+            this.sent = { throttle: 0, brake: 0, steer: 0 };
             this._init();
         }
 
         _init() {
             window.addEventListener('keydown', (e) => {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-                const key = e.key.toLowerCase();
-                if (this.activeKeys.has(key)) return;
-                this.activeKeys.add(key);
+                // Leave browser shortcuts like Ctrl+R alone
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+                const key = e.key.toLowerCase();
+                if (key === 'h' || key === '?') {
+                    if (!e.repeat) document.getElementById('key-guide').classList.toggle('hidden');
+                    return;
+                }
+
+                const action = KEY_ACTIONS[key];
+                if (!action) return;
+
+                e.preventDefault();             // stops the arrow keys scrolling
+                if (this.heldActions.has(key)) return;   // ignore auto-repeat
+                this.heldActions.set(key, action);
                 tryUnlockAudio(this.app);
 
-                if (key === 'w' || e.key === 'ArrowUp') {
-                    this.app.wsManager.send('THROTTLE:255');
-                    this.app.localThrottle(255);
-                    this._setPedalBar('throttle', 100);
-                } else if (key === 's' || e.key === 'ArrowDown') {
-                    this.app.wsManager.send('BRAKE:255');
-                    this.app.localBrake(255);
-                    this._setPedalBar('brake', 100);
-                } else if (key === 'a' || e.key === 'ArrowLeft') {
-                    this.app.wsManager.send('STEER:-255');
-                } else if (key === 'd' || e.key === 'ArrowRight') {
-                    this.app.wsManager.send('STEER:255');
-                } else if (key === 'e' || key === 'shift' || e.key === '.') {
-                    this.app.wsManager.send('SHIFT_UP');
-                    this.app.localShift(1);
-                } else if (key === 'q' || key === 'control' || e.key === ',') {
-                    this.app.wsManager.send('SHIFT_DOWN');
-                    this.app.localShift(-1);
-                }
+                if (action === 'shiftUp') this._shift(1);
+                else if (action === 'shiftDown') this._shift(-1);
+                else this._applyHeld();
             });
 
             window.addEventListener('keyup', (e) => {
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-                const key = e.key.toLowerCase();
-                this.activeKeys.delete(key);
-
-                if (key === 'w' || e.key === 'ArrowUp') {
-                    this.app.wsManager.send('THROTTLE:0');
-                    this.app.localThrottle(0);
-                    this._setPedalBar('throttle', 0);
-                } else if (key === 's' || e.key === 'ArrowDown') {
-                    this.app.wsManager.send('BRAKE:0');
-                    this.app.localBrake(0);
-                    this._setPedalBar('brake', 0);
-                } else if (key === 'a' || e.key === 'ArrowLeft' || key === 'd' || e.key === 'ArrowRight') {
-                    this.app.wsManager.send('STEER:0');
-                }
+                if (this.heldActions.delete(e.key.toLowerCase())) this._applyHeld();
             });
 
             // If the window loses focus while a key is held, the browser never
@@ -687,17 +678,44 @@
             });
         }
 
+        _shift(direction) {
+            this.app.wsManager.send(direction > 0 ? 'SHIFT_UP' : 'SHIFT_DOWN');
+            this.app.localShift(direction);
+        }
+
+        /**
+         * Sends only what changed, worked out from every key still held, so
+         * letting go of W while ↑ is down keeps the throttle on, and A + D
+         * together cancel out to straight ahead.
+         */
+        _applyHeld() {
+            const held = new Set(this.heldActions.values());
+            const throttle = held.has('throttle') ? 255 : 0;
+            const brake = held.has('brake') ? 255 : 0;
+            const steer = (held.has('right') ? 255 : 0) - (held.has('left') ? 255 : 0);
+
+            if (throttle !== this.sent.throttle) {
+                this.sent.throttle = throttle;
+                this.app.wsManager.send(`THROTTLE:${throttle}`);
+                this.app.localThrottle(throttle);
+                this._setPedalBar('throttle', throttle ? 100 : 0);
+            }
+            if (brake !== this.sent.brake) {
+                this.sent.brake = brake;
+                this.app.wsManager.send(`BRAKE:${brake}`);
+                this.app.localBrake(brake);
+                this._setPedalBar('brake', brake ? 100 : 0);
+            }
+            if (steer !== this.sent.steer) {
+                this.sent.steer = steer;
+                this.app.wsManager.send(`STEER:${steer}`);
+            }
+        }
+
         /** Lets go of every held key, e.g. when you alt-tab away mid-drive. */
         _releaseAll() {
-            if (this.activeKeys.size === 0) return;
-            this.activeKeys.clear();
-            this.app.wsManager.send('THROTTLE:0');
-            this.app.wsManager.send('BRAKE:0');
-            this.app.wsManager.send('STEER:0');
-            this.app.localThrottle(0);
-            this.app.localBrake(0);
-            this._setPedalBar('throttle', 0);
-            this._setPedalBar('brake', 0);
+            this.heldActions.clear();
+            this._applyHeld();
         }
 
         _setPedalBar(type, pct) {
@@ -1274,6 +1292,14 @@
             // Both touch and click for cross-device
             splash.addEventListener('touchstart', dismiss, { passive: false });
             splash.addEventListener('click', dismiss);
+
+            // ...and any key, so you can start without touching the mouse
+            const onKey = (e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                window.removeEventListener('keydown', onKey);
+                dismiss();
+            };
+            window.addEventListener('keydown', onKey);
         }
 
         _requestFullscreen() {
