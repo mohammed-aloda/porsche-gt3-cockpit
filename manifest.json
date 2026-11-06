@@ -1,0 +1,11 @@
+{
+    "name": "GT3 RS Virtual Cockpit",
+    "short_name": "GT3 Cockpit",
+    "description": "Real-time telemetry dashboard and control hub for a Porsche GT3 RS RC drift car",
+    "start_url": "./index.html",
+    "display": "fullscreen",
+    "orientation": "landscape",
+    "background_color": "#000000",
+    "theme_color": "#1a1a1a",
+    "icons": []
+}

@@ -1,0 +1,886 @@
+/* ═══════════════════════════════════════════════════════════════
+   PORSCHE GT3 RS VIRTUAL COCKPIT — Master Stylesheet
+   Target: Samsung Galaxy S24 Ultra (3120×1440 landscape)
+
+   NOTE: app.js positions the needle, gear, RPM readout and touch
+   zones in pixels, using "background-size: cover" maths. So the
+   #cockpit background rules must stay "cover / center" or the
+   controls stop lining up with the picture.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Reset ─────────────────────────────────────────────────── */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Design Tokens ─────────────────────────────────────────── */
+:root {
+    --porsche-gold: #D4A843;
+    --porsche-gold-soft: #E9C877;
+    --porsche-gold-dim: rgba(212, 168, 67, 0.3);
+    --porsche-red: #E03C31;
+    --porsche-red-glow: rgba(224, 60, 49, 0.6);
+    --carbon-dark: #0d0d0f;
+    --carbon-mid: #17171a;
+    --needle-color: #FF5722;
+    --needle-glow: rgba(255, 87, 34, 0.8);
+    --redline-glow: rgba(224, 60, 49, 0.9);
+    --hud-green: #00FF88;
+    --hud-green-dim: rgba(0, 255, 136, 0.2);
+    --hud-red: #FF3344;
+    --hud-red-dim: rgba(255, 51, 68, 0.2);
+    --glass-bg: rgba(14, 14, 16, 0.78);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --glass-border-bright: rgba(255, 255, 255, 0.16);
+    --glass-shadow: 0 6px 20px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.72);
+    --text-muted: rgba(255, 255, 255, 0.45);
+    --font-display: 'Orbitron', 'Courier New', monospace;
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-fast: 80ms ease;
+    --transition-normal: 200ms ease;
+    --transition-slow: 400ms ease;
+
+    /* Keeps HUD chips clear of phone notches / rounded corners */
+    --safe-top: max(12px, env(safe-area-inset-top));
+    --safe-right: max(14px, env(safe-area-inset-right));
+    --safe-bottom: max(12px, env(safe-area-inset-bottom));
+    --safe-left: max(14px, env(safe-area-inset-left));
+}
+
+
+/* ─── Cockpit Viewport ──────────────────────────────────────── */
+#cockpit {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background-color: #fff;            /* matches the image's white edges while it loads in */
+    background-image: url('dashboard_bg.png');
+    background-size: cover;            /* DO NOT CHANGE — app.js relies on it */
+    background-position: center center;
+    background-repeat: no-repeat;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+/* Soft studio vignette: darkens the far edges a touch so the
+   white background feels less flat. pointer-events:none means it
+   can never block a touch. */
+#cockpit::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: radial-gradient(
+        ellipse 75% 85% at 50% 52%,
+        transparent 62%,
+        rgba(0, 0, 0, 0.06) 85%,
+        rgba(0, 0, 0, 0.14) 100%
+    );
+}
+
+
+/* ─── Tachometer Needle Canvas ──────────────────────────────── */
+#needle-canvas {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10;
+    /* Positioned via JavaScript for pixel-perfect alignment */
+}
+
+
+/* ─── Gear Display ──────────────────────────────────────────── */
+#gear-display {
+    position: absolute;
+    z-index: 15;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(32px, 4.5vw, 64px);
+    line-height: 1;
+    color: var(--text-primary);
+    text-align: center;
+    letter-spacing: 0.05em;
+    text-shadow:
+        0 0 14px rgba(255, 255, 255, 0.35),
+        0 0 32px var(--porsche-gold-dim);
+    /* app.js writes an inline "transform: translate(-50%,-50%)" to
+       centre this element, which would override any transform we set
+       here. The separate "scale" property stacks on top of it instead,
+       so the gear-change pop below actually shows up now. */
+    scale: 1;
+    transition:
+        scale 140ms var(--ease-out),
+        color var(--transition-fast),
+        text-shadow var(--transition-fast);
+    /* Positioned via JavaScript */
+}
+
+#gear-display.flash {
+    scale: 1.35;
+    color: var(--porsche-gold-soft);
+    text-shadow:
+        0 0 18px var(--porsche-gold),
+        0 0 40px var(--porsche-gold),
+        0 0 80px var(--porsche-gold-dim);
+}
+
+#gear-display.reverse {
+    color: var(--porsche-red);
+    text-shadow:
+        0 0 18px var(--porsche-red),
+        0 0 40px var(--porsche-red-glow);
+}
+
+
+/* ─── Digital RPM Readout ───────────────────────────────────── */
+#rpm-readout {
+    position: absolute;
+    z-index: 15;
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(12px, 1.8vw, 22px);
+    line-height: 1;
+    color: var(--text-secondary);
+    text-align: center;
+    letter-spacing: 0.15em;
+    font-variant-numeric: tabular-nums;   /* digits stop jiggling as RPM changes */
+    white-space: nowrap;
+    transition: color var(--transition-normal);
+    /* Positioned via JavaScript */
+}
+
+#rpm-readout.redline {
+    color: var(--porsche-red);
+    text-shadow: 0 0 10px var(--porsche-red-glow);
+    animation: rpm-pulse 0.3s ease-in-out infinite alternate;
+}
+
+@keyframes rpm-pulse {
+    from { opacity: 0.7; }
+    to   { opacity: 1.0; }
+}
+
+
+/* ─── Redline Vignette ──────────────────────────────────────── */
+#redline-vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background:
+        radial-gradient(
+            ellipse at center,
+            transparent 48%,
+            rgba(224, 60, 49, 0.16) 78%,
+            rgba(224, 60, 49, 0.40) 100%
+        );
+}
+
+#redline-vignette.active {
+    opacity: 1;
+    animation: vignette-throb 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes vignette-throb {
+    from { opacity: 0.6; }
+    to   { opacity: 1.0; }
+}
+
+
+/* ─── Touch Zones (Base) ───────────────────────────────────── */
+.touch-zone {
+    position: absolute;
+    z-index: 20;
+    cursor: pointer;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    /* Was rgba(0,0,0,0.01), which drew faint grey boxes over the white
+       background. A transparent element still receives touches and
+       clicks, so the zones keep working and are now truly invisible. */
+    background-color: transparent;
+}
+
+.touch-zone .zone-feedback {
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    opacity: 0;
+    transition: opacity var(--transition-fast), border-color var(--transition-fast);
+    pointer-events: none;
+}
+
+.touch-zone:hover .zone-feedback {
+    opacity: 0;
+    border-color: transparent;
+}
+
+.touch-zone .zone-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(16px, 3vw, 36px);
+    color: rgba(255, 255, 255, 0.0);
+    font-family: var(--font-display);
+    font-weight: 700;
+    pointer-events: none;
+    transition: color var(--transition-fast);
+}
+
+
+/* ─── Steering Zones ────────────────────────────────────────── */
+#zone-steer-left.active .zone-feedback,
+#zone-steer-right.active .zone-feedback {
+    opacity: 0;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+
+#zone-steer-left.active .zone-icon,
+#zone-steer-right.active .zone-icon {
+    color: transparent;
+    text-shadow: none;
+}
+
+
+/* ─── Paddle Shifter Zones ──────────────────────────────────── */
+#zone-shift-down.active .zone-feedback,
+#zone-shift-up.active .zone-feedback {
+    opacity: 0;
+    border-color: transparent;
+    background: transparent;
+}
+
+.touch-zone.shift-flash .zone-feedback {
+    opacity: 0 !important;
+    border-color: transparent !important;
+    background: transparent !important;
+    transition: none !important;
+}
+
+
+/* ─── Pedal Zones ───────────────────────────────────────────── */
+#zone-throttle.active .zone-feedback,
+#zone-brake.active .zone-feedback {
+    opacity: 0;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* Pedal value bar (shows current drag amount) */
+.pedal-value-bar {
+    display: none !important;
+}
+
+#throttle-bar {
+    background: linear-gradient(to top, rgba(0, 255, 136, 0.05), rgba(0, 255, 136, 0.2));
+    border-top: 2px solid var(--hud-green);
+}
+
+#brake-bar {
+    background: linear-gradient(to top, rgba(255, 51, 68, 0.05), rgba(255, 51, 68, 0.2));
+    border-top: 2px solid var(--hud-red);
+}
+
+
+/* ─── Shared "glass chip" look for HUD pills ────────────────── */
+#connection-status,
+#demo-badge,
+#btn-settings {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(10px) saturate(140%);
+    -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+
+
+/* ─── Connection Status ─────────────────────────────────────── */
+#connection-status {
+    position: absolute;
+    top: var(--safe-top);
+    right: var(--safe-right);
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 10px;
+    border-radius: 999px;
+    opacity: 0.88;
+    transition: opacity var(--transition-normal);
+}
+
+#connection-status:hover {
+    opacity: 1;
+}
+
+#connection-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--hud-red);
+    box-shadow: 0 0 0 3px var(--hud-red-dim), 0 0 8px var(--hud-red);
+    transition: background var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+#connection-dot.connected {
+    background: var(--hud-green);
+    box-shadow: 0 0 0 3px var(--hud-green-dim), 0 0 8px var(--hud-green);
+    animation: dot-breathe 2s ease-in-out infinite;
+}
+
+@keyframes dot-breathe {
+    0%, 100% { box-shadow: 0 0 0 3px var(--hud-green-dim), 0 0 4px var(--hud-green);  opacity: 0.85; }
+    50%      { box-shadow: 0 0 0 4px var(--hud-green-dim), 0 0 12px var(--hud-green); opacity: 1.0; }
+}
+
+#connection-text {
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+
+/* ─── Demo Badge ────────────────────────────────────────────── */
+#demo-badge {
+    position: absolute;
+    top: var(--safe-top);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    padding: 6px 16px;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    color: var(--porsche-gold-soft);
+    border-color: var(--porsche-gold-dim);
+    border-radius: 999px;
+    white-space: nowrap;
+    animation: demo-flash 2.4s ease-in-out infinite;
+}
+
+@keyframes demo-flash {
+    0%, 100% { opacity: 0.65; }
+    50%      { opacity: 1.0; }
+}
+
+
+/* ─── Settings Button ───────────────────────────────────────── */
+#btn-settings {
+    position: absolute;
+    bottom: var(--safe-bottom);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.55;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        opacity var(--transition-normal),
+        color var(--transition-normal),
+        border-color var(--transition-normal),
+        transform 350ms var(--ease-out);
+}
+
+/* Bigger invisible tap target (44px+ is the comfortable minimum for
+   a finger) without making the visible button any bigger. */
+#btn-settings::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+}
+
+#btn-settings:hover,
+#btn-settings:active,
+#btn-settings:focus-visible {
+    opacity: 1;
+    border-color: var(--porsche-gold-dim);
+    color: var(--porsche-gold-soft);
+    transform: translateX(-50%) rotate(90deg);
+}
+
+
+/* ─── Keyboard focus rings (only show for keyboard, not taps) ── */
+button:focus { outline: none; }
+
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--porsche-gold);
+    outline-offset: 3px;
+}
+
+
+/* ─── Settings Overlay ──────────────────────────────────────── */
+#settings-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+    background:
+        radial-gradient(ellipse at center, rgba(10, 10, 12, 0.72), rgba(0, 0, 0, 0.9));
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    animation: overlay-in 0.3s ease;
+    overflow-y: auto;
+}
+
+#settings-overlay.hidden {
+    display: none;
+}
+
+@keyframes overlay-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+#settings-panel {
+    position: relative;
+    width: min(440px, 100%);
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 30px 30px 22px;
+    background:
+        linear-gradient(160deg, rgba(34, 34, 38, 0.96), rgba(16, 16, 18, 0.98));
+    border: 1px solid var(--glass-border-bright);
+    border-radius: 18px;
+    box-shadow:
+        0 30px 80px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    animation: panel-in 0.45s var(--ease-out);
+}
+
+/* Porsche-style tri-colour racing stripe along the top edge */
+#settings-panel::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 28px;
+    right: 28px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: linear-gradient(
+        90deg,
+        var(--porsche-red) 0 33.3%,
+        var(--porsche-gold) 33.3% 66.6%,
+        #f4f4f4 66.6% 100%
+    );
+}
+
+@keyframes panel-in {
+    from { opacity: 0; transform: scale(0.94) translateY(16px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.settings-header h2 {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: var(--porsche-gold-soft);
+    margin-bottom: 10px;
+}
+
+.settings-divider {
+    height: 1px;
+    background: linear-gradient(90deg, var(--porsche-gold), rgba(212, 168, 67, 0.15) 60%, transparent);
+    margin-bottom: 24px;
+}
+
+.settings-field {
+    margin-bottom: 16px;
+}
+
+.settings-field label {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.settings-field input {
+    width: 100%;
+    padding: 13px 16px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--glass-border-bright);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    letter-spacing: 0.03em;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.settings-field input:hover {
+    border-color: rgba(255, 255, 255, 0.26);
+}
+
+.settings-field input:focus {
+    border-color: var(--porsche-gold);
+    box-shadow: 0 0 0 3px var(--porsche-gold-dim);
+    outline: none;
+}
+
+.settings-field input::placeholder {
+    color: var(--text-muted);
+}
+
+.settings-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.32);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+}
+
+#settings-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--hud-red);
+    box-shadow: 0 0 0 3px var(--hud-red-dim);
+    flex-shrink: 0;
+    transition: background var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+#settings-status-dot.connected {
+    background: var(--hud-green);
+    box-shadow: 0 0 0 3px var(--hud-green-dim), 0 0 8px var(--hud-green);
+}
+
+#settings-status-text {
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-secondary);
+}
+
+/* Buttons: CONNECT gets the full first row, the other two share
+   the second row. A grid stops "DEMO MODE" wrapping onto two lines. */
+.settings-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.settings-actions .btn-primary {
+    grid-column: 1 / -1;
+}
+
+.settings-actions button {
+    min-height: 44px;
+    padding: 12px 16px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        background var(--transition-normal),
+        color var(--transition-normal),
+        border-color var(--transition-normal),
+        filter var(--transition-normal),
+        transform 120ms ease;
+}
+
+.settings-actions button:active {
+    transform: scale(0.97);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #E6BE5E, var(--porsche-gold) 45%, #A9832A);
+    color: #120e04;
+    box-shadow: 0 6px 18px rgba(212, 168, 67, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.btn-primary:hover {
+    filter: brightness(1.08);
+}
+
+.btn-primary:active {
+    filter: brightness(0.92);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+    border-color: var(--glass-border-bright) !important;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.btn-secondary:active {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.btn-ghost:hover,
+.btn-ghost:active {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-footer {
+    text-align: center;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.version-tag {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    color: var(--text-muted);
+}
+
+
+/* ─── Splash Overlay ────────────────────────────────────────── */
+#splash-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    text-align: center;
+    background: #000;
+    animation: splash-bg 1.6s ease forwards;
+    cursor: pointer;
+}
+
+/* Spotlight glow behind the logo */
+#splash-overlay::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse 55% 45% at 50% 48%, rgba(212, 168, 67, 0.10), transparent 70%),
+        radial-gradient(ellipse 90% 70% at 50% 120%, rgba(224, 60, 49, 0.10), transparent 70%);
+    animation: fade-in 1.4s ease 0.3s both;
+}
+
+@keyframes splash-bg {
+    0%   { background: #000; }
+    100% { background: rgba(5, 5, 7, 0.94); }
+}
+
+#splash-overlay.dismiss {
+    animation: splash-out 0.6s ease forwards;
+    pointer-events: none;
+}
+
+@keyframes splash-out {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(1.04); }
+}
+
+@keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+#splash-logo {
+    position: relative;
+    font-family: var(--font-display);
+    font-size: clamp(40px, 10vw, 120px);
+    font-weight: 900;
+    letter-spacing: 0.25em;
+    margin-right: -0.25em;   /* cancels the trailing letter-space so it centres properly */
+    color: #fff;
+    text-transform: uppercase;
+    text-shadow: 0 0 40px rgba(255, 255, 255, 0.12);
+    animation: logo-reveal 1.2s var(--ease-out) 0.2s both;
+}
+
+/* Thin tri-colour line that "draws" itself under the logo */
+#splash-logo::after {
+    content: '';
+    display: block;
+    height: 3px;
+    width: calc(100% - 0.25em);   /* ignore the trailing letter-space */
+    margin-top: 0.22em;
+    border-radius: 2px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        var(--porsche-red) 20%,
+        var(--porsche-gold) 50%,
+        var(--porsche-red) 80%,
+        transparent
+    );
+    transform-origin: center;
+    animation: line-draw 1s var(--ease-out) 0.9s both;
+}
+
+@keyframes line-draw {
+    from { transform: scaleX(0); opacity: 0; }
+    to   { transform: scaleX(1); opacity: 1; }
+}
+
+@keyframes logo-reveal {
+    from { opacity: 0; transform: translateY(20px) scale(0.92); filter: blur(6px); }
+    to   { opacity: 1; transform: translateY(0) scale(1);       filter: blur(0); }
+}
+
+#splash-subtitle {
+    position: relative;
+    font-family: var(--font-display);
+    font-size: clamp(11px, 2.2vw, 22px);
+    font-weight: 700;
+    letter-spacing: 0.4em;
+    margin-right: -0.4em;
+    color: var(--porsche-gold-soft);
+    animation: logo-reveal 1s var(--ease-out) 0.6s both;
+}
+
+#splash-hint {
+    position: relative;
+    margin-top: 18px;
+    padding: 10px 22px 10px calc(22px + 0.3em);
+    font-family: var(--font-display);
+    font-size: clamp(9px, 1.2vw, 12px);
+    font-weight: 500;
+    letter-spacing: 0.3em;
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    animation: logo-reveal 0.8s ease 1.2s both, hint-blink 2.2s ease-in-out 2s infinite;
+}
+
+@keyframes hint-blink {
+    0%, 100% { opacity: 0.45; border-color: rgba(255, 255, 255, 0.12); }
+    50%      { opacity: 1;    border-color: var(--porsche-gold-dim); }
+}
+
+
+/* ─── Portrait hint ─────────────────────────────────────────── */
+/* The cockpit artwork is very wide (3120×1440), so in portrait most
+   of it is cropped off. This is just a friendly reminder banner:
+   pointer-events:none means it never blocks a single touch. */
+@media (orientation: portrait) {
+    body::after {
+        content: '⟳  ROTATE TO LANDSCAPE';
+        position: fixed;
+        left: 50%;
+        bottom: calc(var(--safe-bottom) + 56px);
+        transform: translateX(-50%);
+        z-index: 1000;
+        padding: 9px 16px;
+        font-family: var(--font-display);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        color: var(--porsche-gold-soft);
+        white-space: nowrap;
+        background: rgba(14, 14, 16, 0.85);
+        border: 1px solid var(--porsche-gold-dim);
+        border-radius: 999px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        pointer-events: none;
+    }
+}
+
+
+/* ─── Short landscape phones: tighten the HUD chips ─────────── */
+@media (max-height: 480px) {
+    #connection-status { padding: 5px 10px 5px 8px; }
+    #connection-text,
+    #demo-badge { font-size: 9px; }
+    #btn-settings { width: 36px; height: 36px; font-size: 17px; }
+
+    #settings-panel { padding: 22px 22px 16px; }
+    .settings-divider { margin-bottom: 16px; }
+    .settings-status { margin-bottom: 14px; }
+    .settings-actions { margin-bottom: 12px; }
+    .settings-footer { padding-top: 10px; }
+}
+
+
+/* ─── Respect "reduce motion" accessibility setting ─────────── */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+
+/* ─── Utility ───────────────────────────────────────────────── */
+.hidden {
+    display: none !important;
+}
+
+/* Prevent any selection or callout on long-press */
+* {
+    -webkit-touch-callout: none;
+}

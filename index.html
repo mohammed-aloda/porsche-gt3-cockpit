@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Real-time telemetry dashboard and control hub for a Porsche GT3 RS RC drift car">
+
+    <title>GT3 RS Virtual Cockpit</title>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Preload critical assets -->
+    <link rel="preload" href="dashboard_bg.png" as="image">
+</head>
+<body>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- COCKPIT VIEWPORT — Full-screen dashboard container      -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="cockpit">
+
+        <!-- Tachometer needle — HTML5 Canvas rendered in real-time -->
+        <canvas id="needle-canvas"></canvas>
+
+        <!-- Gear indicator HUD — shows N, 1-6, R -->
+        <div id="gear-display" aria-live="polite">N</div>
+
+        <!-- Digital RPM readout -->
+        <div id="rpm-readout" aria-live="polite">0</div>
+
+        <!-- Redline vignette overlay (hidden until RPM > 9000) -->
+        <div id="redline-vignette"></div>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- TOUCH ZONES — Invisible interactive overlays        -->
+        <!-- ═══════════════════════════════════════════════════ -->
+
+        <!-- Steering: Left wheel (top-left corner of background) -->
+        <div id="zone-steer-left" class="touch-zone" data-action="steer-left">
+            <div class="zone-feedback"></div>
+            <span class="zone-icon">◄</span>
+        </div>
+
+        <!-- Steering: Right wheel (top-right corner of background) -->
+        <div id="zone-steer-right" class="touch-zone" data-action="steer-right">
+            <div class="zone-feedback"></div>
+            <span class="zone-icon">►</span>
+        </div>
+
+        <!-- Paddle shifter: Downshift (left carbon paddle with −) -->
+        <div id="zone-shift-down" class="touch-zone" data-action="shift-down">
+            <div class="zone-feedback"></div>
+        </div>
+
+        <!-- Paddle shifter: Upshift (right carbon paddle with +) -->
+        <div id="zone-shift-up" class="touch-zone" data-action="shift-up">
+            <div class="zone-feedback"></div>
+        </div>
+
+        <!-- Left pedal: Brake -->
+        <div id="zone-brake" class="touch-zone" data-action="brake">
+            <div class="zone-feedback"></div>
+            <div class="pedal-value-bar" id="brake-bar"></div>
+        </div>
+
+        <!-- Right pedal: Throttle / Gas -->
+        <div id="zone-throttle" class="touch-zone" data-action="throttle">
+            <div class="zone-feedback"></div>
+            <div class="pedal-value-bar" id="throttle-bar"></div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- HUD OVERLAYS                                        -->
+        <!-- ═══════════════════════════════════════════════════ -->
+
+        <!-- Connection status indicator -->
+        <div id="connection-status">
+            <span id="connection-dot"></span>
+            <span id="connection-text">OFFLINE</span>
+        </div>
+
+        <!-- Demo mode badge (visible when no ESP32 connected) -->
+        <div id="demo-badge" class="hidden">DEMO MODE</div>
+
+        <!-- Settings gear button -->
+        <button id="btn-settings" aria-label="Open settings">⚙</button>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- SETTINGS PANEL — ESP32 connection configuration     -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <div id="settings-overlay" class="hidden">
+            <div id="settings-panel">
+                <div class="settings-header">
+                    <h2>CONNECTION SETTINGS</h2>
+                    <div class="settings-divider"></div>
+                </div>
+
+                <div class="settings-field">
+                    <label for="ws-url-input">ESP32 WebSocket URL</label>
+                    <input type="text"
+                           id="ws-url-input"
+                           placeholder="ws://192.168.4.1:81"
+                           spellcheck="false"
+                           autocomplete="off">
+                </div>
+
+                <div class="settings-status">
+                    <span id="settings-status-dot"></span>
+                    <span id="settings-status-text">Not connected</span>
+                </div>
+
+                <div class="settings-actions">
+                    <button id="btn-connect" class="btn-primary">CONNECT</button>
+                    <button id="btn-demo" class="btn-secondary">DEMO MODE</button>
+                    <button id="btn-close-settings" class="btn-ghost">CLOSE</button>
+                </div>
+
+                <div class="settings-footer">
+                    <span class="version-tag">GT3 RS Virtual Cockpit v1.0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Startup splash (auto-dismisses on first touch) -->
+        <div id="splash-overlay">
+            <div id="splash-logo">PORSCHE</div>
+            <div id="splash-subtitle">GT3 RS VIRTUAL COCKPIT</div>
+            <div id="splash-hint">TAP ANYWHERE TO START</div>
+        </div>
+
+    </div>
+
+    <script src="engine-audio.js"></script>
+    <script src="fmod-wrapper.js"></script>
+    <script src="audio-manager.js"></script>
+    <script src="app.js"></script>
+
+</body>
+</html>

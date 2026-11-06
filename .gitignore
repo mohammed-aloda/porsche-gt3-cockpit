@@ -1,0 +1,10 @@
+# Debug scratch files (not used by the app)
+dump.js
+err.js
+strings_dump.txt
+
+# OS / editor junk
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
