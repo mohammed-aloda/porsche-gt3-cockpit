@@ -27,12 +27,19 @@ const TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-    let urlPath = decodeURIComponent(req.url.split('?')[0]);
+    let urlPath;
+    try {
+        urlPath = decodeURIComponent(req.url.split('?')[0]);
+    } catch (e) {
+        res.writeHead(400).end('Bad request');   // e.g. a stray "%" in the address
+        return;
+    }
     if (urlPath === '/') urlPath = '/index.html';
     const file = path.join(ROOT, urlPath);
 
-    // Only serve files inside this folder
-    if (!file.startsWith(ROOT + path.sep)) {
+    // Only serve files inside this folder, and never hidden ones like .git
+    const hidden = path.relative(ROOT, file).split(path.sep).some((part) => part.startsWith('.'));
+    if (!file.startsWith(ROOT + path.sep) || hidden) {
         res.writeHead(403).end('Forbidden');
         return;
     }
