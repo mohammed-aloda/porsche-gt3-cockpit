@@ -44,3 +44,16 @@ and accepts JSON telemetry like `{"rpm":3200,"gear":"2","throttle":180}`.
 - `audio-manager.js`, `fmod-wrapper.js`, `engine-audio.js`: FMOD engine sound, with a Web Audio synth fallback
 - `wasm/`, `js/`, `sfx/`: the FMOD runtime and sound banks
 - `server.js`, `package.json`: the local web server (`npm start`)
+
+## Sound test: real dyno loops (branch `sound-test-dyno`)
+
+The engine note on this branch comes from 18 short loops cut from a 992 GT3 RS
+dyno recording (`sfx/engine/`): 10 on-throttle loops from 3100 to 8500 rpm,
+7 off-throttle loops and one idle. `sample-engine.js` keeps them all looping,
+pitches each one to the current RPM and blends the two nearest. FMOD still
+plays the gear-shift and backfire sounds.
+
+- Compare with the old sound: open `http://localhost:8000/?sound=fmod`
+- Go back for good: `git checkout main`
+
+The recording is third-party footage, so keep this branch private.

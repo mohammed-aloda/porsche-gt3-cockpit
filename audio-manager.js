@@ -12,6 +12,7 @@ window.AudioManager = (function() {
             this._pendingRPM = 800;
             this._pendingLoad = 0;
             this._pendingVolume = 0.3;
+            this.samples = null; // SampleEngine (real dyno loops), if it loads
         }
 
         /**
@@ -43,6 +44,22 @@ window.AudioManager = (function() {
                 }
             }
 
+            // Real recorded engine loops. FMOD keeps doing shifts and backfires.
+            // ?sound=fmod in the URL turns this off so you can compare.
+            const wantSamples = !/[?&]sound=fmod\b/.test(location.search);
+            if (wantSamples && window.SampleEngine) {
+                try {
+                    const s = new window.SampleEngine();
+                    await s.init();
+                    this.samples = s;
+                    console.log('[AUDIO] Dyno sample engine active.');
+                } catch (err) {
+                    console.log(`[AUDIO] Sample engine unavailable (${err.message}).`);
+                }
+            }
+
+            this._ready = true;
+
             // Apply any pending commands if start was requested before init finished
             if (this._startRequested && this.engine) {
                 this._doStart();
@@ -54,7 +71,7 @@ window.AudioManager = (function() {
          */
         start() {
             this._startRequested = true;
-            if (this.engine) {
+            if (this.engine && this._ready) {
                 this._doStart();
             }
         }
@@ -62,7 +79,12 @@ window.AudioManager = (function() {
         _doStart() {
             this.engine.start();
             this.engine.setRPM(this._pendingRPM);
-            this.engine.setVolume(this._pendingVolume);
+            this.setVolume(this._pendingVolume);
+            if (this.samples) {
+                this.samples.start();
+                this.samples.setRPM(this._pendingRPM);
+                this.samples.setLoad(this._pendingLoad);
+            }
             if (this.engine.setLoad) {
                 this.engine.setLoad(this._pendingLoad);
             }
@@ -70,6 +92,7 @@ window.AudioManager = (function() {
 
         setRPM(rpm) {
             this._pendingRPM = rpm;
+            if (this.samples) this.samples.setRPM(rpm);
             if (this.engine && this.engine.setRPM) {
                 this.engine.setRPM(rpm);
             }
@@ -81,6 +104,7 @@ window.AudioManager = (function() {
          */
         setLoad(loadValue) {
             this._pendingLoad = loadValue;
+            if (this.samples) this.samples.setLoad(loadValue);
             if (this.engine && this.engine.setLoad) {
                 this.engine.setLoad(loadValue);
             }
@@ -100,8 +124,11 @@ window.AudioManager = (function() {
 
         setVolume(level) {
             this._pendingVolume = level;
+            if (this.samples) this.samples.setVolume(level);
             if (this.engine && this.engine.setVolume) {
-                this.engine.setVolume(level);
+                // With samples on, FMOD's engine loop is muted; its shift
+                // and backfire one-shots still play at full level.
+                this.engine.setVolume(this.samples ? 0 : level);
             }
         }
 
@@ -114,6 +141,7 @@ window.AudioManager = (function() {
         
         stop() {
             this._startRequested = false;
+            if (this.samples) this.samples.stop();
             if (this.mode === 'SYNTH' && this.engine && this.engine.stop) {
                 this.engine.stop();
             }
