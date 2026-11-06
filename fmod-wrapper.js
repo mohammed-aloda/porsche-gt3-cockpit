@@ -145,6 +145,18 @@ window.FMODWrapper = (function () {
             if (r !== F.OK) throw new Error('Failed to load Master.bank. Code: ' + r);
             console.log('[FMOD] ✓ Loaded Master.bank');
 
+            // ── Turn the whole mix down so it stops clipping ──
+            // The bank is mixed very hot: at full volume the output went past
+            // 1.0 (the most a speaker can take) most of the time, which
+            // sounds harsh and crackly. Scaling the master bus fixes it for
+            // the engine, shift and backfire sounds together.
+            r = this.system.getBus('bus:/', out);
+            if (r === F.OK && out.val) {
+                out.val.setVolume(FMODWrapper.MASTER_VOLUME);
+            } else {
+                console.warn('[FMOD] Could not get master bus (code ' + r + ')');
+            }
+
             // ── Resolve event descriptors via clean string paths ──
 
             // 1. engine_ext — continuous, looping engine sound
@@ -458,6 +470,9 @@ window.FMODWrapper = (function () {
         [6000, 1426], [6400, 1343], [6800, 1243], [7200, 1159], [7600, 1093],
         [7800, 1093], [8000, 1376], [9200, 1376], [9600, 1593], [10000, 1593],
     ];
+    /** Master level for all FMOD sounds (1.0 = as authored, which clips). */
+    FMODWrapper.MASTER_VOLUME = 0.25;
+
     FMODWrapper.sampleLifeMs = function (rpm) {
         if (rpm <= SAMPLE_LIFE[0][0]) return SAMPLE_LIFE[0][1];
         for (let i = 1; i < SAMPLE_LIFE.length; i++) {

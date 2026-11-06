@@ -29,8 +29,9 @@
         TACH_CENTER_X_PCT: 50.705,
         TACH_CENTER_Y_PCT: 53.75,
         TACH_RADIUS_PCT: 19.0,
-        NEEDLE_START_DEG: 150,
-        NEEDLE_SWEEP_DEG: 240,
+        // Measured from the dial art: the 0 tick is at 153°, the 10 tick at 26° (= 386°)
+        NEEDLE_START_DEG: 153,
+        NEEDLE_SWEEP_DEG: 233,
         NEEDLE_LERP: 0.12,
         MAX_RPM: 10000,
         REDLINE_RPM: 9000,
