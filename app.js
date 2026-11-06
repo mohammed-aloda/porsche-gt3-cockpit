@@ -1181,7 +1181,8 @@
                 this.telemetryDisplay.updateGear(data.gear);
 
                 if (oldGear !== data.gear && this.engineAudio && this.engineAudio.isRunning()) {
-                    this.engineAudio.triggerShiftBlip();
+                    const dir = this.gearSequence.indexOf(data.gear) - this.gearSequence.indexOf(oldGear);
+                    this.engineAudio.triggerShiftBlip(dir < 0 ? -1 : 1);
                 }
             }
         }

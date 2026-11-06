@@ -50,8 +50,12 @@ and accepts JSON telemetry like `{"rpm":3200,"gear":"2","throttle":180}`.
 The engine note on this branch comes from 23 short loops cut from a 992 GT3 RS
 dyno recording (`sfx/engine/`): 14 on-throttle loops from 1840 to 8500 rpm,
 6 off-throttle loops and 3 idle loops (950, 1350, 1480 rpm). `sample-engine.js` keeps them all looping,
-pitches each one to the current RPM and blends the two nearest. FMOD still
-plays the gear-shift and backfire sounds.
+pitches each one to the current RPM and blends the two nearest.
+
+It also makes the shift and overrun effects (`sfx/fx/`): upshifts cut the
+note for ~70 ms with a crack scaled by throttle and revs, downshifts blip,
+lift-off at high revs gives a few random pops, and 8,900 rpm on full
+throttle bounces off a fuel-cut limiter.
 
 - Compare with the old sound: open `http://localhost:8000/?sound=fmod`
 - Go back for good: `git checkout main`

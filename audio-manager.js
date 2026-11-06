@@ -52,6 +52,9 @@ window.AudioManager = (function() {
                     const s = new window.SampleEngine();
                     await s.init();
                     this.samples = s;
+                    // Sample engine makes its own shifts and pops; silence FMOD's
+                    // automatic backfire so the two don't double up.
+                    if (this.engine) this.engine.fxMuted = true;
                     console.log('[AUDIO] Dyno sample engine active.');
                 } catch (err) {
                     console.log(`[AUDIO] Sample engine unavailable (${err.message}).`);
@@ -110,13 +113,15 @@ window.AudioManager = (function() {
             }
         }
 
-        triggerShiftBlip() {
+        triggerShiftBlip(dir = 1) {
+            if (this.samples) { this.samples.shift(dir); return; }
             if (this.engine && this.engine.triggerShiftBlip) {
                 this.engine.triggerShiftBlip();
             }
         }
 
         triggerBackfire() {
+            if (this.samples) { this.samples.burble(0.8); return; }
             if (this.engine && this.engine.triggerBackfire) {
                 this.engine.triggerBackfire();
             }

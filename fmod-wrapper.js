@@ -417,7 +417,7 @@ window.FMODWrapper = (function () {
            triggerBackfire — fires one-shot "event:/backfire_ext"
            ────────────────────────────────────────────────────────── */
         triggerBackfire() {
-            if (!this.backfireDesc) return;
+            if (!this.backfireDesc || this.fxMuted) return;
 
             const F = window.FMOD;
             let out = {};
