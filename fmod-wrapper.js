@@ -26,6 +26,11 @@ window.FMODWrapper = (function () {
             this._currentLoad = 0;
             this._lastBackfireTime = 0;
             this._throttleHistory = [];
+            this._volume = 1.0;
+            this._restarts = 0;
+            this._fading = [];          // old engine copies being faded out: { inst, age }
+            this._progress = 0;         // how far through its sample the engine is (0..1)
+            this._lastTickTime = 0;
         }
 
         /* ──────────────────────────────────────────────────────────
@@ -148,13 +153,8 @@ window.FMODWrapper = (function () {
                 this.engineDesc = out.val;
                 console.log('[FMOD] ✓ Resolved event:/engine_ext');
 
-                r = this.engineDesc.createInstance(out);
-                if (r === F.OK) {
-                    this.engineEvent = out.val;
-                    console.log('[FMOD]   → Engine instance created');
-                } else {
-                    console.error('[FMOD]   ✗ createInstance for engine failed: ' + r);
-                }
+                this.engineEvent = this._createEngineInstance();
+                if (this.engineEvent) console.log('[FMOD]   → Engine instance created');
             } else {
                 console.error('[FMOD] ✗ Could not resolve event:/engine_ext (code ' + r + ')');
             }
@@ -184,6 +184,105 @@ window.FMODWrapper = (function () {
 
             // Start the FMOD update tick
             this._tick();
+        }
+
+        /**
+         * Makes a new engine sound instance, already set to the current
+         * RPM / LOAD / volume so it sounds right from its first sample.
+         * @private
+         */
+        _createEngineInstance(volume = this._volume) {
+            const F = window.FMOD;
+            const out = {};
+            const r = this.engineDesc.createInstance(out);
+            if (r !== F.OK || !out.val) {
+                console.error('[FMOD]   ✗ createInstance for engine failed: ' + r);
+                return null;
+            }
+            const inst = out.val;
+            // 3D event: give it a real position, or the panner can mute it (NaN)
+            inst.set3DAttributes({
+                position: { x: 0, y: 0, z: 0 },
+                velocity: { x: 0, y: 0, z: 0 },
+                forward: { x: 0, y: 0, z: 1 },
+                up: { x: 0, y: 1, z: 0 }
+            });
+            // "true" = jump straight to the value instead of gliding up from 0
+            inst.setParameterByName('RPM', this._currentRPM, true);
+            inst.setParameterByName('LOAD', this._currentLoad, true);
+            inst.setVolume(volume);
+            return inst;
+        }
+
+        /**
+         * WHY THE SOUND USED TO CUT OUT
+         * ------------------------------
+         * In the sound bank, engine_ext plays a recorded engine sample that
+         * does NOT loop. FMOD speeds the sample up for higher RPM, so it
+         * runs out after about 4.7 s at idle and about 1.1 s near 7,500 RPM.
+         * When it ran out, the event stopped, and the old code only restarted
+         * it once it had fully stopped. A freshly started event takes a moment
+         * to make sound, so you heard a 50-150 ms hole.
+         *
+         * THE FIX: track how far through the sample we are (faster at high
+         * RPM, using the timings measured below). Just before it runs out,
+         * start a fresh copy and cross-fade from the old copy to the new one,
+         * like a DJ mixing two records. That way the engine never goes quiet.
+         * @private
+         */
+        _keepEngineAlive(dtMs) {
+            if (!this.isRunning || !this.engineEvent) return;
+            const F = window.FMOD;
+
+            // 1. Fade out and free old copies from earlier hand-overs
+            const HOLD_MS = 90, FADE_MS = 140;   // overlap first, then fade
+            this._fading = this._fading.filter((f) => {
+                f.age += dtMs;
+                if (f.age < HOLD_MS) return true;
+                const k = 1 - (f.age - HOLD_MS) / FADE_MS;
+                if (k <= 0) {
+                    f.inst.stop(F.STUDIO_STOP_IMMEDIATE);
+                    f.inst.release();
+                    return false;
+                }
+                f.inst.setVolume(this._volume * k);
+                return true;
+            });
+
+            // 2. Advance our estimate of how much of the sample has played
+            const rpm = this._readParam(this.engineEvent, 'RPM', this._currentRPM);
+            this._progress += dtMs / FMODWrapper.sampleLifeMs(rpm);
+
+            // 3. Near the end, or already stopping? Hand over to a fresh copy.
+            const o = {};
+            const state = this.engineEvent.getPlaybackState(o) === F.OK ? o.val : F.STUDIO_PLAYBACK_STOPPED;
+            const stopping = state === F.STUDIO_PLAYBACK_STOPPING || state === F.STUDIO_PLAYBACK_STOPPED;
+            if (this._progress >= 0.75 || stopping) {
+                const fresh = this._createEngineInstance();
+                if (!fresh) return;
+                fresh.start();
+                if (stopping) {
+                    this.engineEvent.release();          // already silent, nothing to fade
+                } else {
+                    this._fading.push({ inst: this.engineEvent, age: 0 });
+                }
+                this.engineEvent = fresh;
+                this._progress = 0;
+                this._restarts++;
+            }
+        }
+
+        /** Reads an event parameter's current value (after FMOD's smoothing). @private */
+        _readParam(inst, name, fallback) {
+            const v = {}, fv = {};
+            if (inst.getParameterByName(name, v, fv) === window.FMOD.OK && typeof v.val === 'number') return v.val;
+            return fallback;
+        }
+
+        /** Sends a parameter to the engine and to any copies still fading out. @private */
+        _setEngineParam(name, value) {
+            if (this.engineEvent) this.engineEvent.setParameterByName(name, value, false);
+            for (const f of this._fading) f.inst.setParameterByName(name, value, false);
         }
 
         /**
@@ -219,16 +318,21 @@ window.FMODWrapper = (function () {
             window.__fmod_core_system = coreSys;
             coreSys.mixerResume();           // unblock suspended AudioContext
 
-            // Safely initialize 3D attributes to prevent 3D panner muting (NaN crash)
-            const attr = {
-                position: { x: 0, y: 0, z: 0 },
-                velocity: { x: 0, y: 0, z: 0 },
-                forward: { x: 0, y: 0, z: 1 },
-                up: { x: 0, y: 1, z: 0 }
-            };
-            this.engineEvent.set3DAttributes(attr);
+            // Listener at the origin, facing the engine (prevents 3D panner muting)
             if (coreSys.set3DListenerAttributes) {
-                coreSys.set3DListenerAttributes(0, attr.position, attr.velocity, attr.forward, attr.up);
+                coreSys.set3DListenerAttributes(0,
+                    { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 },
+                    { x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 });
+            }
+
+            // If the tab was hidden or the laptop slept, the browser may pause
+            // audio. Wake it up again when the page comes back.
+            if (!this._resumeHooked) {
+                this._resumeHooked = true;
+                const resume = () => { try { coreSys.mixerResume(); } catch (e) { /* ignore */ } };
+                document.addEventListener('visibilitychange', () => { if (!document.hidden) resume(); });
+                window.addEventListener('focus', resume);
+                window.addEventListener('pointerdown', resume);
             }
 
             this.engineEvent.start();
@@ -243,16 +347,8 @@ window.FMODWrapper = (function () {
             this._currentRPM = rpm;
             if (!this.engineEvent) return;
 
-            const F = window.FMOD;
-            let stateOut = {};
-            if (this.engineEvent.getPlaybackState(stateOut) === F.OK) {
-                // 2 = FMOD_STUDIO_PLAYBACK_STOPPED
-                if (stateOut.val === 2 || stateOut.val === F.STUDIO_PLAYBACK_STOPPED) {
-                    this.engineEvent.start();
-                }
-            }
-
-            this.engineEvent.setParameterByName('RPM', rpm, false);
+            // (Restarting a stopped engine is handled every frame in _tick.)
+            this._setEngineParam('RPM', rpm);
         }
 
         /* ──────────────────────────────────────────────────────────
@@ -286,7 +382,7 @@ window.FMODWrapper = (function () {
             this._currentLoad = val;
 
             if (!this.engineEvent) return;
-            this.engineEvent.setParameterByName('LOAD', val, false);
+            this._setEngineParam('LOAD', val);
         }
 
         /* ──────────────────────────────────────────────────────────
@@ -325,7 +421,9 @@ window.FMODWrapper = (function () {
            setVolume / isRunningStatus
            ────────────────────────────────────────────────────────── */
         setVolume(level) {
+            this._volume = level;
             if (this.engineEvent) this.engineEvent.setVolume(level);
+            // (copies that are fading out pick up the new level on the next frame)
         }
 
         isRunningStatus() {
@@ -337,11 +435,40 @@ window.FMODWrapper = (function () {
            ────────────────────────────────────────────────────────── */
         _tick() {
             if (this.system) {
+                const now = performance.now();
+                const dt = this._lastTickTime ? Math.min(now - this._lastTickTime, 1000) : 16;
+                this._lastTickTime = now;
+                this._keepEngineAlive(dt);
                 this.system.update();
-                requestAnimationFrame(() => this._tick());
+                // A timer instead of requestAnimationFrame: rAF stops completely
+                // when the tab is in the background, which froze FMOD too.
+                setTimeout(() => this._tick(), 16);
             }
         }
     }
+
+    /**
+     * How long one play-through of the engine sample lasts at a given RPM,
+     * in ms. Measured by holding each RPM steady and timing when FMOD
+     * stopped the event. Values in between are interpolated.
+     */
+    const SAMPLE_LIFE = [
+        [800, 4742], [2400, 4742], [2800, 3559], [3200, 2976], [3600, 2559],
+        [4000, 2259], [4400, 2009], [4800, 1809], [5200, 1676], [5600, 1509],
+        [6000, 1426], [6400, 1343], [6800, 1243], [7200, 1159], [7600, 1093],
+        [7800, 1093], [8000, 1376], [9200, 1376], [9600, 1593], [10000, 1593],
+    ];
+    FMODWrapper.sampleLifeMs = function (rpm) {
+        if (rpm <= SAMPLE_LIFE[0][0]) return SAMPLE_LIFE[0][1];
+        for (let i = 1; i < SAMPLE_LIFE.length; i++) {
+            const [r1, l1] = SAMPLE_LIFE[i];
+            if (rpm <= r1) {
+                const [r0, l0] = SAMPLE_LIFE[i - 1];
+                return l0 + (l1 - l0) * (rpm - r0) / (r1 - r0);
+            }
+        }
+        return SAMPLE_LIFE[SAMPLE_LIFE.length - 1][1];
+    };
 
     return FMODWrapper;
 })();

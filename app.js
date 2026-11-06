@@ -25,8 +25,9 @@
         BG_HEIGHT: 1440,
 
         // ── Tachometer Geometry (% of background image) ──
-        TACH_CENTER_X_PCT: 50.0,
-        TACH_CENTER_Y_PCT: 53.0,
+        // Centre of the silver knob in dashboard_bg.png (measured: x 1582, y 774 px)
+        TACH_CENTER_X_PCT: 50.705,
+        TACH_CENTER_Y_PCT: 53.75,
         TACH_RADIUS_PCT: 19.0,
         NEEDLE_START_DEG: 150,
         NEEDLE_SWEEP_DEG: 240,
