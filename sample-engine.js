@@ -16,7 +16,7 @@
 
 window.SampleEngine = (function () {
     const BASE = 'sfx/engine/';
-    const RATE_MIN = 0.5, RATE_MAX = 2.2;
+    const RATE_MIN = 0.7, RATE_MAX = 1.5;   // never stretch a loop far: that's what sounds synthetic
     const SMOOTH = 0.025;          // seconds, time constant for param glides
 
     class SampleEngine {
@@ -48,7 +48,16 @@ window.SampleEngine = (function () {
             this.limiter.ratio.value = 12;
             this.limiter.attack.value = 0.003;
             this.limiter.release.value = 0.12;
-            this.master.connect(this.limiter).connect(c.destination);
+            // Tone: a low-shelf adds body at low revs, a high-shelf trims the
+            // fizzy top end that makes pitched-up samples sound "digital".
+            this.lowShelf = c.createBiquadFilter();
+            this.lowShelf.type = 'lowshelf';
+            this.lowShelf.frequency.value = 160;
+            this.highShelf = c.createBiquadFilter();
+            this.highShelf.type = 'highshelf';
+            this.highShelf.frequency.value = 4500;
+            this.master.connect(this.lowShelf).connect(this.highShelf)
+                .connect(this.limiter).connect(c.destination);
             this.onBus = c.createGain();
             this.offBus = c.createGain();
             this.onBus.connect(this.master);
@@ -61,10 +70,10 @@ window.SampleEngine = (function () {
                 return { rpm: e.rpm, load: e.load, buffer: buf };
             }));
 
-            // Idle belongs to both sets; the lowest off-load loop also fills
-            // the on-load gap between idle and 3100 rpm.
-            const on = decoded.filter(l => l.load === 'on' || l.load === 'idle' || l.rpm < 2500);
-            const off = decoded.filter(l => l.load === 'off' || l.load === 'idle');
+            // Idle loops belong to both sets. Below 2500 rpm on- and off-throttle
+            // sound nearly the same, so the low on-load loops fill the off set too.
+            const on = decoded.filter(l => l.load === 'on' || l.load === 'idle');
+            const off = decoded.filter(l => l.load === 'off' || l.load === 'idle' || l.rpm < 2500);
             this.sets = {
                 on: on.sort((a, b) => a.rpm - b.rpm).map(l => this._voice(l, this.onBus)),
                 off: off.sort((a, b) => a.rpm - b.rpm).map(l => this._voice(l, this.offBus)),
@@ -100,6 +109,14 @@ window.SampleEngine = (function () {
             document.addEventListener('visibilitychange', wake);
             window.addEventListener('pointerdown', wake);
             window.addEventListener('keydown', wake);
+            // A real idle never sits perfectly still: it hunts a few rpm.
+            // A slow random wobble stops the low end sounding like a machine loop.
+            this._wobble = 0;
+            setInterval(() => {
+                this._wobble += (Math.random() - 0.5) * 0.004;
+                this._wobble *= 0.92;
+                if (this._rpm < 2000) this._update();
+            }, 80);
             this._update();
         }
 
@@ -118,7 +135,8 @@ window.SampleEngine = (function () {
         _update() {
             if (!this._running) return;
             const t = this.ctx.currentTime;
-            const rpm = this._rpm;
+            const fade = Math.max(0, Math.min(1, (2000 - this._rpm) / 1000));
+            const rpm = this._rpm * (1 + this._wobble * fade);
             this._mixSet(this.sets.on, rpm, t);
             this._mixSet(this.sets.off, rpm, t);
 
@@ -130,6 +148,11 @@ window.SampleEngine = (function () {
             // Real engines get louder with throttle and revs
             const loud = (0.55 + 0.45 * L) * (0.75 + 0.25 * Math.min(rpm, 9000) / 9000);
             this.master.gain.setTargetAtTime(this._volume * loud * 0.9, t, 0.05);
+
+            // Deeper at low revs: +7 dB bass at idle easing to +2 dB by 5000 rpm
+            const lowK = Math.max(0, Math.min(1, (rpm - 1200) / 3800));
+            this.lowShelf.gain.setTargetAtTime(7 - 5 * lowK, t, 0.1);
+            this.highShelf.gain.setTargetAtTime(-5 + 4 * lowK, t, 0.1);
         }
 
         _mixSet(set, rpm, t) {

@@ -1,52 +1,72 @@
 [
  {
-  "file": "on_3100.wav",
-  "rpm": 3098.1,
+  "file": "on_2400.wav",
+  "rpm": 2400.7,
   "load": "on"
  },
  {
-  "file": "on_3700.wav",
-  "rpm": 3699.1,
+  "file": "on_2750.wav",
+  "rpm": 2752.5,
+  "load": "on"
+ },
+ {
+  "file": "on_3150.wav",
+  "rpm": 3151.4,
+  "load": "on"
+ },
+ {
+  "file": "on_3550.wav",
+  "rpm": 3548.6,
+  "load": "on"
+ },
+ {
+  "file": "on_1840.wav",
+  "rpm": 1840.5,
+  "load": "on"
+ },
+ {
+  "file": "on_3950.wav",
+  "rpm": 3951.0,
   "load": "on"
  },
  {
   "file": "on_4300.wav",
-  "rpm": 4295.5,
+  "rpm": 4296.2,
   "load": "on"
  },
  {
   "file": "on_4900.wav",
-  "rpm": 4900.8,
+  "rpm": 4901.3,
   "load": "on"
  },
  {
   "file": "on_5500.wav",
-  "rpm": 5502.9,
+  "rpm": 5503.2,
   "load": "on"
  },
  {
   "file": "on_6100.wav",
-  "rpm": 6096.0,
+  "rpm": 6095.9,
   "load": "on"
  },
  {
   "file": "on_6700.wav",
-  "rpm": 6697.6,
+  "rpm": 6697.3,
   "load": "on"
  },
  {
   "file": "on_7300.wav",
-  "rpm": 7304.3,
+  "rpm": 7303.7,
   "load": "on"
  },
  {
   "file": "on_7900.wav",
-  "rpm": 7899.7,
+  "rpm": 7898.9,
   "load": "on"
  },
  {
   "file": "on_8500.wav",
-  "rpm": 8497.4,
+  "rpm": 8496.3,
   "load": "on"
  },
  {
@@ -71,7 +91,7 @@
  },
  {
   "file": "off_3900.wav",
-  "rpm": 3896.4,
+  "rpm": 3896.5,
   "load": "off"
  },
  {
@@ -80,13 +100,18 @@
   "load": "off"
  },
  {
-  "file": "off_2400.wav",
-  "rpm": 2390,
-  "load": "off"
+  "file": "idle_950.wav",
+  "rpm": 945.9,
+  "load": "idle"
  },
  {
-  "file": "idle_980.wav",
-  "rpm": 950,
+  "file": "idle_1350.wav",
+  "rpm": 1348.8,
+  "load": "idle"
+ },
+ {
+  "file": "idle_1480.wav",
+  "rpm": 1476.5,
   "load": "idle"
  }
 ]

@@ -47,9 +47,9 @@ and accepts JSON telemetry like `{"rpm":3200,"gear":"2","throttle":180}`.
 
 ## Sound test: real dyno loops (branch `sound-test-dyno`)
 
-The engine note on this branch comes from 18 short loops cut from a 992 GT3 RS
-dyno recording (`sfx/engine/`): 10 on-throttle loops from 3100 to 8500 rpm,
-7 off-throttle loops and one idle. `sample-engine.js` keeps them all looping,
+The engine note on this branch comes from 23 short loops cut from a 992 GT3 RS
+dyno recording (`sfx/engine/`): 14 on-throttle loops from 1840 to 8500 rpm,
+6 off-throttle loops and 3 idle loops (950, 1350, 1480 rpm). `sample-engine.js` keeps them all looping,
 pitches each one to the current RPM and blends the two nearest. FMOD still
 plays the gear-shift and backfire sounds.
 
