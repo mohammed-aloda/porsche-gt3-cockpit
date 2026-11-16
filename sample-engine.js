@@ -25,6 +25,10 @@ window.SampleEngine = (function () {
     const FX = 'sfx/fx/';
     const POPS = 8;
     const LIMIT_RPM = 8900;
+    const OVERALL_GAIN = 1.4;      // whole engine about 3 dB louder
+    const TOP_BOOST_FROM = 7500;   // extra push starts here...
+    const TOP_BOOST = 1.8;         // ...and is about +9 dB (x2.8) by 9,000 rpm
+    const RPM_LOUD_MIN = 0.12;     // loudness at idle vs. 1.0 at redline (lower = bigger build-up)
     const rnd = (a, b) => a + Math.random() * (b - a);
 
     class SampleEngine {
@@ -51,10 +55,10 @@ window.SampleEngine = (function () {
             this.master = c.createGain();
             this.master.gain.value = 0;
             this.limiter = c.createDynamicsCompressor();
-            this.limiter.threshold.value = -8;
+            this.limiter.threshold.value = -6;   // catches peaks only, so the top end can get loud without clipping
             this.limiter.knee.value = 6;
-            this.limiter.ratio.value = 12;
-            this.limiter.attack.value = 0.003;
+            this.limiter.ratio.value = 20;
+            this.limiter.attack.value = 0.001;
             this.limiter.release.value = 0.12;
             // Tone: a low-shelf adds body at low revs, a high-shelf trims the
             // fizzy top end that makes pitched-up samples sound "digital".
@@ -278,8 +282,15 @@ window.SampleEngine = (function () {
             this.offBus.gain.setTargetAtTime(Math.cos(L * Math.PI / 2), t, 0.06);
 
             // Real engines get louder with throttle and revs
-            const loud = (0.45 + 0.55 * L) * (0.72 + 0.28 * Math.min(rpm, 9000) / 9000);
-            this.master.gain.setTargetAtTime(this._volume * loud * 0.9, t, 0.05);
+            // Revs: much quieter at idle than at the 9,000 redline, rising
+            // steadily in between (the loops are recorded at a similar level).
+            const revK = Math.max(0, Math.min(1, (rpm - 900) / 8100));
+            const revLoud = RPM_LOUD_MIN + (1 - RPM_LOUD_MIN) * Math.pow(revK, 0.8);
+            // Big extra push from 7,500 rpm to the limiter (smooth S-curve)
+            const topK = Math.max(0, Math.min(1, (rpm - TOP_BOOST_FROM) / (9000 - TOP_BOOST_FROM)));
+            const topLoud = 1 + TOP_BOOST * topK * topK * (3 - 2 * topK);
+            const loud = (0.45 + 0.55 * L) * revLoud * topLoud;
+            this.master.gain.setTargetAtTime(this._volume * loud * 0.9 * OVERALL_GAIN, t, 0.05);
 
             // Deeper at low revs: +7 dB bass at idle easing to +2 dB by 5000 rpm
             const lowK = Math.max(0, Math.min(1, (rpm - 1200) / 3800));
