@@ -45,6 +45,13 @@
         WHEEL_RADIUS_PX: 218,      // a little over the wheel's 211 px, to cover its edge
         WHEEL_MAX_DEG: 70,         // how far the pictures turn at full lock
 
+        // ── Pedal pictures (px in the 3120×1440 background, around each pedal) ──
+        PEDALS: {
+            brake:    { x: 120,  y: 660, w: 410, h: 630 },
+            throttle: { x: 2620, y: 560, w: 390, h: 878 },
+        },
+        PEDAL_MIN_SCALE: 0.88,     // how small a pedal gets when pressed all the way
+
         // ── Touch Zone Definitions (% of background image) ──
         ZONES: {
             steerLeft:  { x: 0.5,  y: 0,    w: 13,  h: 32 },
@@ -795,6 +802,50 @@
        "window" over each one that shows the same patch of the image,
        and rotate that window. Touches pass straight through it.
        ══════════════════════════════════════════════════════════ */
+    /** Windows onto the pedal pictures that shrink a little as you press them. */
+    class Pedals {
+        constructor(cockpit) {
+            this.els = {};
+            for (const name of Object.keys(CONFIG.PEDALS)) {
+                // A plain white cover hides the pedal in the background;
+                // the picture inside it is what shrinks.
+                const cover = document.createElement('div');
+                cover.className = 'pedal-cover';
+                cover.setAttribute('aria-hidden', 'true');
+                const el = document.createElement('div');
+                el.className = 'pedal-pic';
+                cover.appendChild(el);
+                cockpit.appendChild(cover);
+                this.els[name] = el;
+            }
+        }
+
+        layout() {
+            const { imgW, imgH, offsetX, offsetY } = getImageBounds();
+            const scale = imgW / CONFIG.BG_WIDTH;
+            for (const [name, p] of Object.entries(CONFIG.PEDALS)) {
+                const el = this.els[name];
+                const cover = el.parentElement;
+                const left = offsetX + p.x * scale;
+                const top = offsetY + p.y * scale;
+                cover.style.left = left + 'px';
+                cover.style.top = top + 'px';
+                cover.style.width = (p.w * scale) + 'px';
+                cover.style.height = (p.h * scale) + 'px';
+                el.style.backgroundSize = imgW + 'px ' + imgH + 'px';
+                el.style.backgroundPosition = (offsetX - left) + 'px ' + (offsetY - top) + 'px';
+            }
+        }
+
+        /** @param {'brake'|'throttle'} name  @param {number} value 0..255 */
+        set(name, value) {
+            const el = this.els[name];
+            if (!el) return;
+            const k = clamp(value / 255, 0, 1);
+            el.style.transform = `scale(${1 - (1 - CONFIG.PEDAL_MIN_SCALE) * k})`;
+        }
+    }
+
     class SteeringWheels {
         constructor(cockpit) {
             this.els = CONFIG.WHEELS.map(() => {
@@ -1106,6 +1157,7 @@
             this.connText = document.getElementById('connection-text');
 
             this.wheels = new SteeringWheels(document.getElementById('cockpit'));
+            this.pedals = new Pedals(document.getElementById('cockpit'));
             this.wsManager.onSendCb = (token) => {
                 if (token.startsWith('STEER:')) this.wheels.setSteer(parseInt(token.slice(6), 10) || 0);
             };
@@ -1224,6 +1276,7 @@
 
         localThrottle(value) {
             tryUnlockAudio(this);
+            this.pedals.set('throttle', value);
             this._liveThrottleInput = value / 255.0;
             if (this.engineAudio) {
                 if (!this.engineAudio.isRunning()) {
@@ -1244,6 +1297,7 @@
         }
 
         localBrake(value) {
+            this.pedals.set('brake', value);
             this._liveBrakeInput = value / 255.0;
             if (!this.wsManager.isConnected && !this.demoMode.active) {
                 this.demoMode.start();
@@ -1489,6 +1543,7 @@
         _layout() {
             this.tachRenderer.layout();
             this.wheels.layout();
+            this.pedals.layout();
             this.telemetryDisplay.layout();
             if (this.touchController) {
                 this.touchController.layout();

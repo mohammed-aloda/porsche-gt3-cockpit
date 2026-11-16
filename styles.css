@@ -210,6 +210,30 @@ html, body {
 }
 
 
+/* ─── Pressable pedals ─────────────────────────────────────── */
+/* Windows onto the pedal part of the background (sized and positioned by
+   app.js). The white cover hides the original pedal, so when the picture
+   inside shrinks as you press it, only the shrunken pedal shows. */
+.pedal-cover {
+    position: absolute;
+    z-index: 0;   /* under the soft edge vignette, like the wheels */
+    background: #fff;
+    pointer-events: none;
+}
+
+.pedal-pic {
+    position: absolute;
+    inset: 0;
+    background-image: url('dashboard_bg.png');
+    background-repeat: no-repeat;
+    background-color: #fff;
+    pointer-events: none;
+    transform-origin: 50% 85%;
+    transition: transform 90ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    will-change: transform;
+}
+
+
 /* ─── Touch Zones (Base) ───────────────────────────────────── */
 .touch-zone {
     position: absolute;
