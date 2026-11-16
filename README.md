@@ -1,46 +1,103 @@
 # GT3 RS Virtual Cockpit
 
-A browser dashboard that drives an ESP32-powered Porsche GT3 RS RC drift car over WebSocket.
-It shows a live tachometer, gear and RPM, plays engine sound (FMOD), and turns the
-steering wheels, paddles and pedals in the picture into touch controls.
+A browser cockpit that drives a home-built ESP32 RC drift car styled after the Porsche 911 GT3 RS.
+The page is the car's controller: steering wheels, shift paddles and pedals are touch (or keyboard)
+controls, a physics model of the real GT3 RS gearbox decides how much power the motor gets, and an
+FMOD engine sound follows the revs.
 
-## Run it on your computer
+![The cockpit running in a browser](docs/cockpit.png)
 
-You need [Node.js](https://nodejs.org) (the LTS version). Nothing else to install.
+## Features
 
-```
+- **Live tachometer** drawn on canvas, with gear display, RPM readout and a 9,000 rpm redline
+- **Drivetrain model** using the 992 GT3 RS gear ratios: each gear has its own top speed, revs drop on
+  upshifts, and lifting off gives engine braking
+- **Motor control from the model**: the app streams `MOTOR:0..255` to the car 25 times a second, with a
+  short power cut on every upshift and an on/off stutter at the rev limiter
+- **Engine sound** with FMOD Studio (WebAssembly), and a Web Audio synth fallback if FMOD can't load
+- **Touch and keyboard controls**, with an on-screen key guide
+- **Demo mode** when no car is connected, so anyone can try it in a browser
+- **Fail-safe**: the car stops on its own if the app goes quiet for 300 ms (tab closed, phone asleep,
+  Wi-Fi drop)
+
+## Tech stack
+
+| Part | Built with |
+| --- | --- |
+| Web app | Plain HTML, CSS and JavaScript (no framework, no build step), Canvas, Web Audio |
+| Sound | FMOD Studio HTML5 runtime (WebAssembly) |
+| Local server | Node.js, built-in modules only (`server.js`) |
+| Car | ESP32 (Arduino), WebSockets, MX1508 dual H-bridge, optional servo |
+| Link | WebSocket over the ESP32's own Wi-Fi hotspot |
+
+## Run it
+
+You need [Node.js](https://nodejs.org) (LTS). Nothing else to install.
+
+```bash
 npm start
 ```
 
-That opens http://localhost:8000 in your browser. Press Ctrl+C in the terminal to stop it.
+That serves the app at http://localhost:8000 and opens it in your browser. With no car connected it
+runs in demo mode. Press Ctrl+C to stop.
 
-Why not just double-click `index.html`? Browsers block the sound engine from loading its
-`.wasm` and `.bank` files from `file://`, so the app needs a tiny local web server (`server.js`,
-built only from Node's own modules).
+Why a server instead of double-clicking `index.html`? Browsers block the sound engine from loading its
+`.wasm` and `.bank` files over `file://`, so the app needs to be served over `http://localhost`.
 
-## Controls
+### Controls
 
 | Action | Touch | Keyboard |
 | --- | --- | --- |
-| Throttle | Hold the right pedal (higher = more) | W / ↑ |
+| Throttle | Hold the right pedal | W / ↑ |
 | Brake | Hold the left pedal | S / ↓ |
 | Steer | Hold the left / right steering wheel | A / D or ← / → |
 | Shift up | Tap the + paddle | E |
 | Shift down | Tap the − paddle | Q or R |
-| Show / hide the key guide | | H or ? |
-| Settings | ⚙ button at the bottom | |
+| Key guide | | H or ? |
+| Settings | ⚙ button | |
 
-With no car connected it switches to **demo mode** so you can still play with it.
+## Hardware
 
-## Connecting to the car
+```
+ Browser (laptop / phone)                         ESP32 on the car
+ ┌─────────────────────────┐   WebSocket over    ┌──────────────────────────┐
+ │ Cockpit UI + gearbox    │   the car's Wi-Fi   │ WebSocket server :81     │
+ │ model + engine sound    │ ──────────────────► │ MX1508 ─► drive motor    │
+ │                         │ MOTOR, BRAKE, STEER │        ─► steering motor │
+ │                         │ ◄────────────────── │ servo  ─► shift "kick"   │
+ └─────────────────────────┘   {"gear":"3"}      └──────────────────────────┘
+```
 
-Join the ESP32's Wi-Fi, open ⚙ settings, and connect to `ws://192.168.4.1:81` (the default).
-The app sends `THROTTLE:0..255`, `BRAKE:0..255`, `STEER:-255..255`, `SHIFT_UP`, `SHIFT_DOWN`,
-and accepts JSON telemetry like `{"rpm":3200,"gear":"2","throttle":180}`.
+- ESP32 dev board running as its own Wi-Fi access point
+- MX1508 dual H-bridge: one channel for the rear drive motor, one for the steering motor
+- Optional servo that gives the chassis a small kick on each gear change
 
-## Files
+Firmware, wiring and a step-by-step flash-and-test guide are in [`firmware/`](firmware/HOW-TO-FLASH-AND-TEST.md).
+The hotspot password lives in `secrets.h`, which is git-ignored; copy `secrets.example.h` to start.
 
-- `index.html`, `styles.css`, `app.js`: the page, its look, and its logic
-- `audio-manager.js`, `fmod-wrapper.js`, `engine-audio.js`: FMOD engine sound, with a Web Audio synth fallback
-- `wasm/`, `js/`, `sfx/`: the FMOD runtime and sound banks
-- `server.js`, `package.json`: the local web server (`npm start`)
+### Protocol
+
+App to car: `MOTOR:0..255`, `BRAKE:0..255`, `STEER:-255..255`, `SHIFT_UP`, `SHIFT_DOWN`
+(plus `THROTTLE:0..255`, used by the app's own model).
+Car to app: JSON such as `{"gear":"3"}`. The app works out RPM itself, so the needle never fights the car.
+
+## Project structure
+
+```
+index.html, styles.css      the page and its look
+app.js                      controls, tachometer, drivetrain model, WebSocket link
+audio-manager.js            picks FMOD or the synth fallback
+fmod-wrapper.js             loads the FMOD runtime and sound banks
+engine-audio.js             Web Audio synth fallback
+wasm/, sfx/                 FMOD runtime and sound banks
+server.js, package.json     tiny local web server (npm start)
+firmware/                   ESP32 sketch and flashing guide
+docs/                       screenshots
+```
+
+## Credits and notes
+
+- Sound uses the [FMOD Studio](https://www.fmod.com) HTML5 runtime, © Firelight Technologies,
+  under the FMOD license.
+- This is a personal, non-commercial fan project. Porsche, 911 and GT3 RS are trademarks of
+  Dr. Ing. h.c. F. Porsche AG; this project is not affiliated with or endorsed by Porsche.
