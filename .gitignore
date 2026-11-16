@@ -8,3 +8,10 @@ Thumbs.db
 desktop.ini
 .DS_Store
 .vscode/
+
+# Firmware secrets: copy secrets.example.h to secrets.h (never committed)
+firmware/**/secrets.h
+
+# Node / logs
+node_modules/
+*.log
