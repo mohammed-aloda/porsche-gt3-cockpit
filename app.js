@@ -62,6 +62,14 @@
         // ── Timing ──
         SHIFT_DEBOUNCE_MS: 120,
         PEDAL_SEND_INTERVAL_MS: 16,
+
+        // ── Motor power sent to the car (MOTOR:0..255) ──
+        // The car's power follows the drivetrain model's speed, so it is held back
+        // by the gear: 1st tops out at about 30%, 6th at full power.
+        MOTOR_TOP_KMH: 255,      // model speed that means full motor power
+        MOTOR_SEND_MS: 40,       // 25 updates a second (the car stops if they stop)
+        SHIFT_CUT_MS: 100,       // power cut on each upshift
+        LIMITER_PULSE_MS: 80,    // on/off rhythm of the motor at the 9,000 limiter
     };
 
 
@@ -230,6 +238,11 @@
             if (this.onSendCb) this.onSendCb(token);
             // Always log for debugging even when not connected
             console.log(`[WS→] ${token}`);
+        }
+
+        /** Send without logging: for messages sent many times a second. */
+        sendQuiet(token) {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(token);
         }
 
         sendThrottled(token) {
@@ -1205,8 +1218,13 @@
                 // Optimistic local update
                 const newIndex = clamp(this.gearIndex + direction, 0, this.gearSequence.length - 1);
                 if (newIndex === this.gearIndex) return;
+                const fromGear = this.gearSequence[this.gearIndex];
                 this.gearIndex = newIndex;
                 this.onTelemetry({ gear: this.gearSequence[this.gearIndex] });
+                // Upshift between forward gears: cut the motor briefly, like the PDK
+                if (direction > 0 && fromGear !== 'R' && fromGear !== 'N') {
+                    this._motorCutUntil = performance.now() + CONFIG.SHIFT_CUT_MS;
+                }
                 // RPM must drop / blip with the shift, so keep the model running
                 if (this.wsManager.isConnected) this._startLiveAudioLoop();
             }
@@ -1287,16 +1305,40 @@
                     this.engineAudio.setRPM(rpm);
                 }
 
+                // Motor power for the car, a few times a second
+                if (now - (this._lastMotorSend || 0) >= CONFIG.MOTOR_SEND_MS) {
+                    this._lastMotorSend = now;
+                    this.wsManager.sendQuiet(`MOTOR:${this._motorPower(sim, throttle, now)}`);
+                }
+
                 // Keep running until stopped, at idle, with no pedal pressed
                 const settled = sim.speed < 0.5 && Math.abs(sim.rpm - DrivetrainSim.IDLE) < 30;
                 if (throttle > 0.01 || brake > 0.01 || !settled) {
                     requestAnimationFrame(tick);
                 } else {
                     this._liveAudioRunning = false;
+                    this.wsManager.sendQuiet('MOTOR:0');
                 }
             };
 
             requestAnimationFrame(tick);
+        }
+
+        /**
+         * Motor power 0..255 for the car, from the drivetrain model.
+         *  - Follows the model's speed, so each gear has its own top speed.
+         *  - Engine braking: off the throttle the model slows gently (more in
+         *    low gears), so the power fades instead of cutting to zero.
+         *  - Upshift: no power for SHIFT_CUT_MS.
+         *  - Rev limiter: on/off pulses while the throttle holds it at 9,000.
+         */
+        _motorPower(sim, throttle, now) {
+            const gear = this.currentGear || 'N';
+            if (gear === 'N') return 0;
+            if (now < (this._motorCutUntil || 0)) return 0;
+            if (throttle > 0.05 && sim.rpm >= DrivetrainSim.LIMIT - 150 &&
+                Math.floor(now / CONFIG.LIMITER_PULSE_MS) % 2 === 1) return 0;
+            return Math.round(clamp(sim.speed / CONFIG.MOTOR_TOP_KMH, 0, 1) * 255);
         }
 
         startDemoMode() {
