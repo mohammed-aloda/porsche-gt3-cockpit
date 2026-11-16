@@ -37,7 +37,7 @@
         REDLINE_RPM: 9000,
 
         // ── Gear Display (% of background image): on the dial's screen, left of PRND ──
-        GEAR_X_PCT: 52.6,
+        GEAR_X_PCT: 50.705,        // same as TACH_CENTER_X_PCT: centred under the needle pivot
         GEAR_Y_PCT: 68.8,
 
         // ── Steering wheel pictures (px in the 3120×1440 background) ──
