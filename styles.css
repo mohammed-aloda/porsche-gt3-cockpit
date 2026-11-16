@@ -166,35 +166,6 @@ html, body {
 }
 
 
-/* ─── Digital RPM Readout ───────────────────────────────────── */
-#rpm-readout {
-    position: absolute;
-    z-index: 15;
-    font-family: var(--font-display);
-    font-weight: 500;
-    font-size: clamp(12px, 1.8vw, 22px);
-    line-height: 1;
-    color: var(--text-secondary);
-    text-align: center;
-    letter-spacing: 0.15em;
-    font-variant-numeric: tabular-nums;   /* digits stop jiggling as RPM changes */
-    white-space: nowrap;
-    transition: color var(--transition-normal);
-    /* Positioned via JavaScript */
-}
-
-#rpm-readout.redline {
-    color: var(--porsche-red);
-    text-shadow: 0 0 10px var(--porsche-red-glow);
-    animation: rpm-pulse 0.3s ease-in-out infinite alternate;
-}
-
-@keyframes rpm-pulse {
-    from { opacity: 0.7; }
-    to   { opacity: 1.0; }
-}
-
-
 /* ─── Redline Vignette ──────────────────────────────────────── */
 #redline-vignette {
     position: absolute;

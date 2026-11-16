@@ -36,13 +36,9 @@
         MAX_RPM: 10000,
         REDLINE_RPM: 9000,
 
-        // ── Gear Display (% of background image) ──
-        GEAR_X_PCT: 49.8,
-        GEAR_Y_PCT: 79.5,
-
-        // ── RPM Readout (% of background image) ──
-        RPM_X_PCT: 49.8,
-        RPM_Y_PCT: 84.5,
+        // ── Gear Display (% of background image): on the dial's screen, left of PRND ──
+        GEAR_X_PCT: 50.705,        // same as TACH_CENTER_X_PCT: centred under the needle pivot
+        GEAR_Y_PCT: 68.8,
 
         // ── Steering wheel pictures (px in the 3120×1440 background) ──
         WHEELS: [{ x: 313, y: 269 }, { x: 2822, y: 269 }],
@@ -752,7 +748,6 @@
     class TelemetryDisplay {
         constructor() {
             this.gearEl = document.getElementById('gear-display');
-            this.rpmEl = document.getElementById('rpm-readout');
             this.vignetteEl = document.getElementById('redline-vignette');
             this.currentGear = 'N';
             this._flashTimeout = null;
@@ -772,11 +767,6 @@
             this.gearEl.style.left = gearPos.x + 'px';
             this.gearEl.style.top = gearPos.y + 'px';
             this.gearEl.style.transform = 'translate(-50%, -50%)';
-
-            const rpmPos = imgToViewport(CONFIG.RPM_X_PCT, CONFIG.RPM_Y_PCT);
-            this.rpmEl.style.left = rpmPos.x + 'px';
-            this.rpmEl.style.top = rpmPos.y + 'px';
-            this.rpmEl.style.transform = 'translate(-50%, -50%)';
         }
 
         updateGear(gear) {
@@ -793,10 +783,7 @@
         }
 
         updateRPM(rpm) {
-            const displayRPM = Math.round(rpm / 100) * 100;
-            this.rpmEl.textContent = displayRPM.toLocaleString();
             const inRedline = rpm >= CONFIG.REDLINE_RPM;
-            this.rpmEl.classList.toggle('redline', inRedline);
             this.vignetteEl.classList.toggle('active', inRedline);
         }
     }
